@@ -1,6 +1,5 @@
 # Agent 0: beats the random player, no AI algorithm.
 from copy import deepcopy
-
 from agents.agent import Agent
 from store import register_agent
 import numpy as np
@@ -13,19 +12,13 @@ class Agent0(Agent):
         super(Agent0, self).__init__()
         self.name = "Player0"
         self.autoplay = True
-        self.dir_map = {
-            "u": 0,
-            "r": 1,
-            "d": 2,
-            "l": 3,
-        }
-
         self.opposites = {
             0: 2,
             1: 3,
             2: 0,
             3: 1,
         }
+        self.moves = ((-1, 0), (0, 1), (1, 0), (0, -1))
 
     def step(self, chess_board, my_pos, adv_pos, max_step):
         """
@@ -38,43 +31,37 @@ class Agent0(Agent):
         where (x, y) is the next position of your agent and dir is the direction of the wall
         you want to put on.
         """
-        moves = ((-1, 0), (0, 1), (1, 0), (0, -1))
+
+        # Check if you can reach the neighbouring cell of the opponent and potentially enclosing them
         adv_cell = chess_board[adv_pos[0], adv_pos[1]]
         free_walls_indices = [i for i in range(len(adv_cell)) if not adv_cell[i]]
 
-        # Check if you can reach the neighbouring cell of the opponent and potentially enclosing them
         for ind in free_walls_indices:
-            dest_x, dest_y, direction = get_target_cell(adv_pos, ind)
-            if check_valid_step(chess_board, max_step, my_pos, (dest_x, dest_y), direction,adv_pos):
-
-                # If the enclosing does not give me less squares
-                temp_board = deepcopy(chess_board)
-                temp_board[dest_x, dest_y, direction] = True
-                move = moves[direction]
-                temp_board[dest_x + move[0], dest_y + move[1], self.opposites[direction]] = True
-                end, my_score, adv_score = check_endgame(temp_board, (dest_x, dest_y), adv_pos)
-                if not end or my_score >= adv_score:
-                    return (dest_x, dest_y), direction
+            des_x, des_y, direction = get_target_cell(adv_pos, ind)
+            if check_valid_step(chess_board, max_step, my_pos, (des_x, des_y), direction, adv_pos):
+                # Check if the enclosing does not cause the agent to lose
+                if self.check_lose_condition(chess_board, (des_x, des_y), direction, adv_pos):
+                    return (des_x, des_y), direction
 
         # Else take the max step in some direction
         ori_pos = deepcopy(my_pos)
-
         h = 0
+
         while True:
             my_pos = ori_pos
             for _ in range(max_step):
                 r, c = my_pos
-                dir = np.random.randint(0, 4)
-                m_r, m_c = moves[dir]
+                d = np.random.randint(0, 4)
+                m_r, m_c = self.moves[d]
                 my_pos = (r + m_r, c + m_c)
 
                 k = 0
-                while chess_board[r, c, dir] or my_pos == adv_pos:
+                while chess_board[r, c, d] or my_pos == adv_pos:
                     k += 1
                     if k > 300:
                         break
-                    dir = np.random.randint(0, 4)
-                    m_r, m_c = moves[dir]
+                    d = np.random.randint(0, 4)
+                    m_r, m_c = self.moves[d]
                     my_pos = (r + m_r, c + m_c)
 
                 if k > 300:
@@ -82,25 +69,34 @@ class Agent0(Agent):
                     break
 
             # Put Barrier
-            dir = np.random.randint(0, 4)
+            d = np.random.randint(0, 4)
             r, c = my_pos
-            while chess_board[r, c, dir]:
-                dir = np.random.randint(0, 4)
+            while chess_board[r, c, d]:
+                d = np.random.randint(0, 4)
 
-            temp_board = deepcopy(chess_board)
-            temp_board[my_pos[0], my_pos[1], dir] = True
-            # Set the opposite barrier to True
-            move = moves[dir]
-            temp_board[my_pos[0] + move[0], my_pos[1] + move[1], self.opposites[dir]] = True
-            end, my_score, adv_score = check_endgame(temp_board, my_pos, adv_pos)
-
-            if not end or my_score >= adv_score or h > 50:
-                return my_pos, dir
+            # Check if the enclosing does not cause the agent to lose
+            if self.check_lose_condition(chess_board, my_pos, d, adv_pos) or h > 50:
+                return my_pos, d
 
             h = h+1
 
+    def check_lose_condition(self, chess_board, next_pos, next_dir, adv_pos):
+        """
+        This function check if taking a move ends in losing the game for the agent.
+
+        """
+        temp_board = deepcopy(chess_board)
+        temp_board[next_pos[0], next_pos[1], next_dir] = True
+        move = self.moves[next_dir]
+        temp_board[next_pos[0] + move[0], next_pos[1] + move[1], self.opposites[next_dir]] = True
+        end, my_score, adv_score = check_endgame(temp_board, next_pos, adv_pos)
+        return not end or my_score >= adv_score
+
 
 def check_valid_step(chess_board, max_step, start_pos, end_pos, barrier_dir, adv_pos):
+    """
+    This function checks if there is a valid step between the start position and the end position.
+    """
 
     # Endpoint already has barrier or is boarder
     r, c = end_pos
@@ -118,8 +114,8 @@ def check_valid_step(chess_board, max_step, start_pos, end_pos, barrier_dir, adv
         r, c = cur_pos
         if cur_step == max_step:
             break
-        for dir, move in enumerate(((-1, 0), (0, 1), (1, 0), (0, -1))):
-            if chess_board[r, c, dir]:
+        for d, move in enumerate(((-1, 0), (0, 1), (1, 0), (0, -1))):
+            if chess_board[r, c, d]:
                 continue
 
             next_pos = (cur_pos[0] + move[0], cur_pos[1] + move[1])
@@ -136,6 +132,9 @@ def check_valid_step(chess_board, max_step, start_pos, end_pos, barrier_dir, adv
 
 
 def get_target_cell(position, available_wall):
+    """
+    This function finds the cell to move to, based on the available wall of an input cell.
+    """
     r, c = position
     if available_wall == 0:  # Up
         return r - 1, c, 2
@@ -154,14 +153,6 @@ def check_endgame(chessboard, p1, p2):
     """
     Check if the game ends and compute the current score of the agents.
 
-    Returns
-    -------
-    is_endgame : bool
-        Whether the game ends.
-    player_1_score : int
-        The score of player 1.
-    player_2_score : int
-        The score of player 2.
     """
 
     # Union-Find
@@ -183,10 +174,10 @@ def check_endgame(chessboard, p1, p2):
 
     for r in range(len(chessboard)):
         for c in range(len(chessboard)):
-            for dir, move in enumerate(
+            for d, move in enumerate(
                     moves[1:3]
             ):  # Only check down and right
-                if chessboard[r, c, dir + 1]:
+                if chessboard[r, c, d + 1]:
                     continue
                 pos_a = find((r, c))
                 pos_b = find((r + move[0], c + move[1]))
