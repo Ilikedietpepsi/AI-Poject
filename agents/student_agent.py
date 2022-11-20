@@ -37,12 +37,12 @@ class StudentAgent(Agent):
 
         Please check the sample implementation in agents/random_agent.py or agents/human_agent.py for more details.
         """
-        root = self.MonteCarloTreeSearchNode(state=chess_board)
+        root = self.MonteCarloTreeSearchNode(state=chess_board, p1_pos=my_pos, p2_pos=adv_pos, max_step=max_step)
         selected_node = root.best_action()
         return selected_node
 
     class MonteCarloTreeSearchNode:
-        def __init__(self, state, parent=None, parent_action=None):
+        def __init__(self, state, p1_pos, p2_pos, max_step, parent=None, parent_action=None):
             self.state = state
             self.parent = parent
             self.parent_action = parent_action
@@ -53,6 +53,12 @@ class StudentAgent(Agent):
             self._results[-1] = 0
             self._untried_actions = None
             self._untried_actions = self.untried_actions()
+            self.moves = ((-1, 0), (0, 1), (1, 0), (0, -1))
+            self.p1_pos = p1_pos
+            self.p2_pos = p2_pos
+            self.max_step = max_step
+            self.opposites = {0: 2, 1: 3, 2: 0, 3: 1}
+            self.turn = 0
 
         def untried_actions(self):
             """
@@ -83,7 +89,8 @@ class StudentAgent(Agent):
             """
             action = self._untried_actions.pop()
             next_state = self.state.move(action)
-            child_node = self.__init__(next_state, parent=self, parent_action=action)
+            child_node = self.__init__(next_state, p1_pos=self.p1_pos, p2_pos=self.p2_pos, parent=self,
+                                       max_step=self.max_step, parent_action=action)
 
             self.children.append(child_node)
             return child_node
@@ -92,7 +99,7 @@ class StudentAgent(Agent):
             """
             Check if the current node is terminal or not
             """
-            return self.state.is_game_over()
+            return self.state.is_game_over()[0]
 
         def rollout(self):
             """
@@ -101,21 +108,24 @@ class StudentAgent(Agent):
             """
             current_rollout_state = self.state
 
-            while not current_rollout_state.is_game_over():
+            end, p1_score, p2_score = current_rollout_state.is_game_over()
+            while not end:
                 possible_moves = current_rollout_state.get_legal_actions()
 
                 action = self.rollout_policy(possible_moves)
                 current_rollout_state = current_rollout_state.move(action)
-            return current_rollout_state.game_result()
+                end, p1_score, p2_score = current_rollout_state.is_game_over()
 
-        def backpropagate(self, result):
+            return p1_score, p2_score
+
+        def back_propagate(self, result):
             """
             In this step all the statistics for the nodes are updated.
             """
             self._number_of_visits += 1.
             self._results[result] += 1.
             if self.parent:
-                self.parent.backpropagate(result)
+                self.parent.back_propagate(result)
 
         def is_fully_expanded(self):
             """
@@ -135,7 +145,7 @@ class StudentAgent(Agent):
 
         def rollout_policy(self, possible_moves):
             """
-            Randomly selects a move out of possible moves. This is an example of random playout.
+            Randomly selects a move out of possible moves. This is an example of random play out.
             """
             return possible_moves[np.random.randint(len(possible_moves))]
 
@@ -161,45 +171,136 @@ class StudentAgent(Agent):
             for i in range(simulation_no):
                 v = self._tree_policy()
                 reward = v.rollout()
-                v.backpropagate(reward)
+                v.back_propagate(reward)
 
             return self.best_child(c_param=0.)
 
         def get_legal_actions(self):
-            '''
-            Modify according to your game or
-            needs. Constructs a list of all
-            possible actions from current state.
-            Returns a list.
-            '''
+            """
+            Constructs a list of all possible actions from current state. Returns a list.
+            """
+
+            actions = []
+            # Get position
+            pos = self.p1_pos if self.turn else self.p2_pos
+
+            for _ in range(self.max_step):
+                for move in self.moves:
+                    for direction in range(4):
+                        if self.check_valid_step(pos, (pos[0] + move[0], pos[1] + move[1]), direction):
+                            actions.append((move, direction))
+
+            return actions
 
         def is_game_over(self):
-            '''
-            Modify according to your game or
-            needs. It is the game over condition
-            and depends on your game. Returns
-            true or false
-            '''
+            """
+            It is the game over condition and depends on your game. Returns true/ false, plus the scores of the players.
+            """
 
-        def game_result(self):
-            '''
-            Modify according to your game or
-            needs. Returns 1 or 0 or -1 depending
-            on your state corresponding to win,
-            tie or a loss.
-            '''
+            # Union-Find
+            father = dict()
+            for r in range(len(self.state)):
+                for c in range(len(self.state)):
+                    father[(r, c)] = (r, c)
+
+            def find(pos):
+                if father[pos] != pos:
+                    father[pos] = find(father[pos])
+                return father[pos]
+
+            def union(pos1, pos2):
+                father[pos1] = pos2
+
+            for r in range(len(self.state)):
+                for c in range(len(self.state)):
+                    for d, move in enumerate(
+                            self.moves[1:3]
+                    ):  # Only check down and right
+                        if self.state[r, c, d + 1]:
+                            continue
+                        pos_a = find((r, c))
+                        pos_b = find((r + move[0], c + move[1]))
+                        if pos_a != pos_b:
+                            union(pos_a, pos_b)
+
+            for r in range(len(self.state)):
+                for c in range(len(self.state)):
+                    find((r, c))
+            p0_r = find(tuple(self.p1_pos))
+            p1_r = find(tuple(self.p2_pos))
+            p0_score = list(father.values()).count(p0_r)
+            p1_score = list(father.values()).count(p1_r)
+            if p0_r == p1_r:
+                return False, p0_score, p1_score
+            return True, p0_score, p1_score
 
         def move(self, action):
-            '''
-            Modify according to your game or
-            needs. Changes the state of your
-            board with a new value. For a normal
-            Tic Tac Toe game, it can be a 3 by 3
-            array with all the elements of array
-            being 0 initially. 0 means the board
-            position is empty. If you place x in
-            row 2 column 3, then it would be some
-            thing like board[2][3] = 1, where 1
-            represents that x is placed. Returns
-            the new state after making a move.
-            '''
+            """
+            Changes the state of the game with a new value for player1_position, player_2position, and the board state.
+            Returns the new state after making a move.
+            """
+            pos, direction = action
+
+            # Set barrier
+            self.state[pos[0], pos[1], direction] = True
+            # Set the opposite barrier to True
+            move = self.moves[direction]
+            self.state[pos[0] + move[0], pos[1] + move[1], self.opposites[direction]] = True
+
+            if self.turn:
+                self.p1_pos = pos
+            else:
+                self.p2_pos = pos
+
+            # Change turn
+            self.turn = 1 - self.turn
+
+            return self.state
+
+        def check_valid_step(self, start_pos, end_pos, barrier_dir):
+            """
+            Check if the step the agent takes is valid (reachable and within max steps).
+
+            Parameters
+            ----------
+            start_pos : tuple
+                The start position of the agent.
+            end_pos : np.ndarray
+                The end position of the agent.
+            barrier_dir : int
+                The direction of the barrier.
+            """
+            # Endpoint already has barrier or is boarder
+            r, c = end_pos
+            if self.state[r, c, barrier_dir]:
+                return False
+            if np.array_equal(start_pos, end_pos):
+                return True
+
+            # Get position of the adversary
+            adv_pos = self.p1_pos if self.turn else self.p2_pos
+
+            # BFS
+            state_queue = [(start_pos, 0)]
+            visited = {tuple(start_pos)}
+            is_reached = False
+            while state_queue and not is_reached:
+                cur_pos, cur_step = state_queue.pop(0)
+                r, c = cur_pos
+                if cur_step == self.max_step:
+                    break
+                for d, move in enumerate(self.moves):
+                    if self.state[r, c, d]:
+                        continue
+
+                    next_pos = cur_pos + move
+                    if np.array_equal(next_pos, adv_pos) or tuple(next_pos) in visited:
+                        continue
+                    if np.array_equal(next_pos, end_pos):
+                        is_reached = True
+                        break
+
+                    visited.add(tuple(next_pos))
+                    state_queue.append((next_pos, cur_step + 1))
+
+            return is_reached
