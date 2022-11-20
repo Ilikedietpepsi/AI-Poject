@@ -4,7 +4,9 @@ from copy import deepcopy
 import numpy as np
 
 from agents.agent import Agent
+from node import Node
 from store import register_agent
+from state import State
 import sys
 
 
@@ -26,6 +28,7 @@ class StudentAgent(Agent):
             "l": 3,
         }
 
+
     def find_walls(self, chess_board, pos):
         walls = 0
         pos_r, pos_c = pos
@@ -33,6 +36,8 @@ class StudentAgent(Agent):
             if chess_board[pos_r, pos_c, i]:
                 walls += 1
         return walls
+
+
 
 
 
@@ -51,48 +56,10 @@ class StudentAgent(Agent):
 
         Please check the sample implementation in agents/random_agent.py or agents/human_agent.py for more details.
         """
-        self.max = max_step
-        ori_pos = deepcopy(my_pos)
-        moves = ((-1, 0), (0, 1), (1, 0), (0, -1))
-        my_r, my_c = my_pos
-        adv_r, adv_c = adv_pos
-        my_walls = self.find_walls(chess_board, my_pos)
-        adv_walls = self.find_walls(chess_board, adv_pos)
+        state = State(chess_board, my_pos, adv_pos, max_step)
+        node = Node(state)
+        return node.best_action()
 
-        state_queue = [(my_pos, 0)]
-        visited = {tuple(my_pos)}
 
-        while state_queue:
-            cur = state_queue.pop(0)
-            cur_pos, cur_step = cur
-            print(cur)
-            r,c = tuple(cur_pos)
-            if cur_step == max_step:
-                break
-            if self.find_walls(chess_board, cur_pos) == 0:
-                my_pos = (r,c)
-                break
-            for dir, move in enumerate(moves):
-                if chess_board[r, c, dir]:
-                    continue
-                m_r, m_c = move
-                next_pos = (r+m_r, c+m_c)
-                if next_pos == adv_pos or tuple(next_pos) in visited:
-                    continue
 
-                visited.add(tuple(next_pos))
-                state_queue.append((next_pos, cur_step + 1))
 
-        dir = np.random.randint(0, 4)
-        r, c = my_pos
-        while chess_board[r, c, dir]:
-            dir = np.random.randint(0, 4)
-        return my_pos, dir
-
-        # for i in range(4):
-        #     if not chess_board[adv_r, adv_c, i]:
-        #         m_r, m_c = moves[i]
-        #         if adv_r + m_r - my_r + adv_c + m_c - my_c <= max_step:
-        #             my_pos = (adv_r + m_r, adv_c + m_c)
-        #             dir = (i+2) % 4
-        #             break
