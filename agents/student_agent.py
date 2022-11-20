@@ -39,11 +39,17 @@ class StudentAgent(Agent):
         """
         root = self.MonteCarloTreeSearchNode(state=chess_board, p1_pos=my_pos, p2_pos=adv_pos, max_step=max_step)
         selected_node = root.best_action()
-        return selected_node
+        return selected_node.get_selected_pos()
 
     class MonteCarloTreeSearchNode:
         def __init__(self, state, p1_pos, p2_pos, max_step, parent=None, parent_action=None):
             self.state = state
+            self.turn = 0
+            self.moves = ((-1, 0), (0, 1), (1, 0), (0, -1))
+            self.p1_pos = p1_pos
+            self.p2_pos = p2_pos
+            self.max_step = max_step
+            self.opposites = {0: 2, 1: 3, 2: 0, 3: 1}
             self.parent = parent
             self.parent_action = parent_action
             self.children = []
@@ -53,18 +59,13 @@ class StudentAgent(Agent):
             self._results[-1] = 0
             self._untried_actions = None
             self._untried_actions = self.untried_actions()
-            self.moves = ((-1, 0), (0, 1), (1, 0), (0, -1))
-            self.p1_pos = p1_pos
-            self.p2_pos = p2_pos
-            self.max_step = max_step
-            self.opposites = {0: 2, 1: 3, 2: 0, 3: 1}
-            self.turn = 0
+            return
 
         def untried_actions(self):
             """
             Returns the list of untried actions from a given state.
             """
-            self._untried_actions = self.state.get_legal_actions()
+            self._untried_actions = self.get_legal_actions()
             return self._untried_actions
 
         def q(self):
@@ -88,9 +89,9 @@ class StudentAgent(Agent):
             array and the child_node is returned
             """
             action = self._untried_actions.pop()
-            next_state = self.state.move(action)
-            child_node = self.__init__(next_state, p1_pos=self.p1_pos, p2_pos=self.p2_pos, parent=self,
-                                       max_step=self.max_step, parent_action=action)
+            self.move(action)
+            child_node = self.__class__(self.state, p1_pos=self.p1_pos, p2_pos=self.p2_pos, parent=self,
+                                        max_step=self.max_step, parent_action=action)
 
             self.children.append(child_node)
             return child_node
@@ -99,22 +100,20 @@ class StudentAgent(Agent):
             """
             Check if the current node is terminal or not
             """
-            return self.state.is_game_over()[0]
+            return self.is_game_over()[0]
 
         def rollout(self):
             """
             From the current state, entire game is simulated till there is an outcome for the game.
             This outcome of the game is returned.
             """
-            current_rollout_state = self.state
 
-            end, p1_score, p2_score = current_rollout_state.is_game_over()
+            end, p1_score, p2_score = self.is_game_over()
             while not end:
-                possible_moves = current_rollout_state.get_legal_actions()
-
+                possible_moves = self.get_legal_actions()
                 action = self.rollout_policy(possible_moves)
-                current_rollout_state = current_rollout_state.move(action)
-                end, p1_score, p2_score = current_rollout_state.is_game_over()
+                self.move(action)
+                end, p1_score, p2_score = self.is_game_over()
 
             return p1_score, p2_score
 
@@ -155,7 +154,6 @@ class StudentAgent(Agent):
             """
             current_node = self
             while not current_node.is_terminal_node():
-
                 if not current_node.is_fully_expanded():
                     return current_node.expand()
                 else:
@@ -187,7 +185,9 @@ class StudentAgent(Agent):
             for _ in range(self.max_step):
                 for move in self.moves:
                     for direction in range(4):
-                        if self.check_valid_step(pos, (pos[0] + move[0], pos[1] + move[1]), direction):
+                        next_pose = (pos[0] + move[0], pos[1] + move[1])
+                        if 0 <= next_pose[0] < len(self.state) and 0 <= next_pose[1] < len(self.state) and \
+                                self.check_valid_step(pos, next_pose, direction):
                             actions.append((move, direction))
 
             return actions
@@ -239,18 +239,20 @@ class StudentAgent(Agent):
             Changes the state of the game with a new value for player1_position, player_2position, and the board state.
             Returns the new state after making a move.
             """
-            pos, direction = action
+            move, direction = action
+            cur_pos = self.p1_pos if self.turn else self.p2_pos
+            target_pose = cur_pos[0] + move[0], cur_pos[1] + move[1]
 
             # Set barrier
-            self.state[pos[0], pos[1], direction] = True
+            self.state[target_pose[0], target_pose[1], direction] = True
             # Set the opposite barrier to True
-            move = self.moves[direction]
-            self.state[pos[0] + move[0], pos[1] + move[1], self.opposites[direction]] = True
+            op_move = self.moves[direction]
+            self.state[target_pose[0] + op_move[0], target_pose[1] + op_move[1], self.opposites[direction]] = True
 
             if self.turn:
-                self.p1_pos = pos
+                self.p1_pos = target_pose
             else:
-                self.p2_pos = pos
+                self.p2_pos = target_pose
 
             # Change turn
             self.turn = 1 - self.turn
@@ -293,7 +295,7 @@ class StudentAgent(Agent):
                     if self.state[r, c, d]:
                         continue
 
-                    next_pos = cur_pos + move
+                    next_pos = (cur_pos[0] + move[0], cur_pos[1] + move[1])
                     if np.array_equal(next_pos, adv_pos) or tuple(next_pos) in visited:
                         continue
                     if np.array_equal(next_pos, end_pos):
@@ -304,3 +306,6 @@ class StudentAgent(Agent):
                     state_queue.append((next_pos, cur_step + 1))
 
             return is_reached
+
+        def get_selected_pos(self):
+            return self.p1_pos, 0
