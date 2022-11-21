@@ -24,8 +24,6 @@ class StudentAgent(Agent):
 
     def step(self, chess_board, my_pos, adv_pos, max_step):
         """
-        Implement the step function of your agent here.
-        You can use the following variables to access the chess board:
         - chess_board: a numpy array of shape (x_max, y_max, 4)
         - my_pos: a tuple of (x, y)
         - adv_pos: a tuple of (x, y)
@@ -34,17 +32,16 @@ class StudentAgent(Agent):
         You should return a tuple of ((x, y), dir),
         where (x, y) is the next position of your agent and dir is the direction of the wall
         you want to put on.
-
-        Please check the sample implementation in agents/random_agent.py or agents/human_agent.py for more details.
         """
-        root = self.MonteCarloTreeSearchNode(state=chess_board, p1_pos=my_pos, p2_pos=adv_pos, max_step=max_step)
+        root = self.MonteCarloTreeSearchNode(state=chess_board, p1_pos=(my_pos, None), p2_pos=(adv_pos, None),
+                                             max_step=max_step)
         selected_node = root.best_action()
         return selected_node.get_selected_pos()
 
     class MonteCarloTreeSearchNode:
         def __init__(self, state, p1_pos, p2_pos, max_step, parent=None, parent_action=None):
             self.state = state
-            self.turn = 0
+            self.turn = 1
             self.moves = ((-1, 0), (0, 1), (1, 0), (0, -1))
             self.p1_pos = p1_pos
             self.p2_pos = p2_pos
@@ -89,9 +86,10 @@ class StudentAgent(Agent):
             array and the child_node is returned
             """
             action = self._untried_actions.pop()
+            parent = self
             self.move(action)
-            child_node = self.__class__(self.state, p1_pos=self.p1_pos, p2_pos=self.p2_pos, parent=self,
-                                        max_step=self.max_step, parent_action=action)
+            child_node = parent.__class__(self.state, p1_pos=self.p1_pos, p2_pos=self.p2_pos, parent=parent,
+                                          max_step=self.max_step, parent_action=action)
 
             self.children.append(child_node)
             return child_node
@@ -109,13 +107,20 @@ class StudentAgent(Agent):
             """
 
             end, p1_score, p2_score = self.is_game_over()
+            player_turn = self.turn
+
             while not end:
-                possible_moves = self.get_legal_actions()
+                possible_moves = self.get_legal_actions()  # Based on the player whose turn it is
                 action = self.rollout_policy(possible_moves)
-                self.move(action)
+                self.move(action)  # Turn switch
                 end, p1_score, p2_score = self.is_game_over()
 
-            return p1_score, p2_score
+            if p1_score > p2_score:
+                return 1 if player_turn else -1
+            elif p1_score < p2_score:
+                return 1 if not player_turn else -1
+            else:
+                return 0
 
         def back_propagate(self, result):
             """
@@ -178,9 +183,10 @@ class StudentAgent(Agent):
             Constructs a list of all possible actions from current state. Returns a list.
             """
 
-            actions = []
-            # Get position
-            pos = self.p1_pos if self.turn else self.p2_pos
+            legal_actions = []  # Array to store all legal actions
+
+            # Get current position
+            pos = self.p1_pos[0] if self.turn else self.p2_pos[0]
 
             for _ in range(self.max_step):
                 for move in self.moves:
@@ -188,13 +194,13 @@ class StudentAgent(Agent):
                         next_pose = (pos[0] + move[0], pos[1] + move[1])
                         if 0 <= next_pose[0] < len(self.state) and 0 <= next_pose[1] < len(self.state) and \
                                 self.check_valid_step(pos, next_pose, direction):
-                            actions.append((move, direction))
+                            legal_actions.append((move, direction))
 
-            return actions
+            return legal_actions
 
         def is_game_over(self):
             """
-            It is the game over condition and depends on your game. Returns true/ false, plus the scores of the players.
+            It is the game over condition. Returns true/ false, plus the scores of the players.
             """
 
             # Union-Find
@@ -226,8 +232,8 @@ class StudentAgent(Agent):
             for r in range(len(self.state)):
                 for c in range(len(self.state)):
                     find((r, c))
-            p0_r = find(tuple(self.p1_pos))
-            p1_r = find(tuple(self.p2_pos))
+            p0_r = find(tuple(self.p1_pos[0]))
+            p1_r = find(tuple(self.p2_pos[0]))
             p0_score = list(father.values()).count(p0_r)
             p1_score = list(father.values()).count(p1_r)
             if p0_r == p1_r:
@@ -240,7 +246,7 @@ class StudentAgent(Agent):
             Returns the new state after making a move.
             """
             move, direction = action
-            cur_pos = self.p1_pos if self.turn else self.p2_pos
+            cur_pos = self.p1_pos[0] if self.turn else self.p2_pos[0]
             target_pose = cur_pos[0] + move[0], cur_pos[1] + move[1]
 
             # Set barrier
@@ -250,9 +256,9 @@ class StudentAgent(Agent):
             self.state[target_pose[0] + op_move[0], target_pose[1] + op_move[1], self.opposites[direction]] = True
 
             if self.turn:
-                self.p1_pos = target_pose
+                self.p1_pos = (target_pose, direction)
             else:
-                self.p2_pos = target_pose
+                self.p2_pos = (target_pose, direction)
 
             # Change turn
             self.turn = 1 - self.turn
@@ -280,7 +286,7 @@ class StudentAgent(Agent):
                 return True
 
             # Get position of the adversary
-            adv_pos = self.p1_pos if self.turn else self.p2_pos
+            adv_pos = self.p2_pos[0] if self.turn else self.p1_pos[0]
 
             # BFS
             state_queue = [(start_pos, 0)]
@@ -308,4 +314,7 @@ class StudentAgent(Agent):
             return is_reached
 
         def get_selected_pos(self):
-            return self.p1_pos, 0
+            """
+            Returns the best position to move to.
+            """
+            return self.p1_pos
