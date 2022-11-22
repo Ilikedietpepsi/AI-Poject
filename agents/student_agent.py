@@ -62,7 +62,7 @@ class StudentAgent(Agent):
             """
             Returns the list of untried actions from a given state.
             """
-            self._untried_actions = self.get_legal_actions()
+            self._untried_actions = self.get_legal_positions()
             return self._untried_actions
 
         def q(self):
@@ -110,7 +110,7 @@ class StudentAgent(Agent):
             player_turn = self.turn
 
             while not end:
-                possible_moves = self.get_legal_actions()  # Based on the player whose turn it is
+                possible_moves = self.get_legal_positions()  # Based on the player whose turn it is
                 action = self.rollout_policy(possible_moves)
                 self.move(action)  # Turn switch
                 end, p1_score, p2_score = self.is_game_over()
@@ -178,24 +178,43 @@ class StudentAgent(Agent):
 
             return self.best_child(c_param=0.)
 
-        def get_legal_actions(self):
+        def get_legal_positions(self):
             """
             Constructs a list of all possible actions from current state. Returns a list.
             """
 
-            legal_actions = []  # Array to store all legal actions
+            legal_positions = []  # A legal position to move to
 
             # Get current position
-            pos = self.p1_pos[0] if self.turn else self.p2_pos[0]
+            pos = self.p1_pos if self.turn else self.p2_pos
+            num_steps = self.max_step
 
-            for _ in range(self.max_step):
-                for move in self.moves:
+            # Setting up walls around current cell
+            # for direction in range(4):
+            #     if self.check_valid_step(pos[0], pos[0], direction):
+            #         legal_positions.append((pos[0], direction))
+
+            pos_to_try = [pos]
+
+            while num_steps:
+                temp = []
+                for p in pos_to_try:
+                    res = self.get_neighbours(p[0])
+                    legal_positions = legal_positions + res
+                    temp = temp + res
+                pos_to_try = temp
+                num_steps = num_steps-1
+
+            return list(set(legal_positions))
+
+        def get_neighbours(self, pos):
+            legal_actions = []
+            for move in self.moves:
+                next_pose = (pos[0] + move[0], pos[1] + move[1])
+                if 0 <= next_pose[0] < len(self.state) and 0 <= next_pose[1] < len(self.state):
                     for direction in range(4):
-                        next_pose = (pos[0] + move[0], pos[1] + move[1])
-                        if 0 <= next_pose[0] < len(self.state) and 0 <= next_pose[1] < len(self.state) and \
-                                self.check_valid_step(pos, next_pose, direction):
-                            legal_actions.append((move, direction))
-
+                        if self.check_valid_step(pos, next_pose, direction):
+                            legal_actions.append((pos, direction))
             return legal_actions
 
         def is_game_over(self):
@@ -240,25 +259,25 @@ class StudentAgent(Agent):
                 return False, p0_score, p1_score
             return True, p0_score, p1_score
 
-        def move(self, action):
+        def move(self, new_position):
             """
             Changes the state of the game with a new value for player1_position, player_2position, and the board state.
             Returns the new state after making a move.
             """
-            move, direction = action
-            cur_pos = self.p1_pos[0] if self.turn else self.p2_pos[0]
-            target_pose = cur_pos[0] + move[0], cur_pos[1] + move[1]
+            target_pose, direction = new_position
 
+            print(new_position)
             # Set barrier
             self.state[target_pose[0], target_pose[1], direction] = True
             # Set the opposite barrier to True
             op_move = self.moves[direction]
             self.state[target_pose[0] + op_move[0], target_pose[1] + op_move[1], self.opposites[direction]] = True
+            print(target_pose[0] + op_move[0], target_pose[1] + op_move[1], self.opposites[direction])
 
             if self.turn:
-                self.p1_pos = (target_pose, direction)
+                self.p1_pos = new_position
             else:
-                self.p2_pos = (target_pose, direction)
+                self.p2_pos = new_position
 
             # Change turn
             self.turn = 1 - self.turn
@@ -317,4 +336,5 @@ class StudentAgent(Agent):
             """
             Returns the best position to move to.
             """
+            # Todo make sure turn makes sense
             return self.p1_pos
