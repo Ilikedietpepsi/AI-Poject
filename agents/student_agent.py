@@ -3,7 +3,7 @@ from agents.agent import Agent
 from store import register_agent
 from collections import defaultdict
 import numpy as np
-
+from copy import deepcopy
 
 @register_agent("student_agent")
 class StudentAgent(Agent):
@@ -34,14 +34,14 @@ class StudentAgent(Agent):
         you want to put on.
         """
         root = self.MonteCarloTreeSearchNode(state=chess_board, p1_pos=(my_pos, None), p2_pos=(adv_pos, None),
-                                             max_step=max_step)
+                                             max_step=max_step, turn=1)
         selected_node = root.best_action()
         return selected_node.get_selected_pos()
 
     class MonteCarloTreeSearchNode:
-        def __init__(self, state, p1_pos, p2_pos, max_step, parent=None, parent_action=None):
+        def __init__(self, state, p1_pos, p2_pos, max_step, turn, parent=None, parent_action=None):
             self.state = state
-            self.turn = 1
+            self.turn = turn
             self.moves = ((-1, 0), (0, 1), (1, 0), (0, -1))
             self.p1_pos = p1_pos
             self.p2_pos = p2_pos
@@ -86,10 +86,10 @@ class StudentAgent(Agent):
             array and the child_node is returned
             """
             action = self._untried_actions.pop()
-            parent = self
+            parent = deepcopy(self)
             self.move(action)
             child_node = parent.__class__(self.state, p1_pos=self.p1_pos, p2_pos=self.p2_pos, parent=parent,
-                                          max_step=self.max_step, parent_action=action)
+                                          max_step=self.max_step, turn=self.turn, parent_action=action)
 
             self.children.append(child_node)
             return child_node
@@ -169,7 +169,7 @@ class StudentAgent(Agent):
             """
             This is the best action function which returns the node corresponding to best possible move.
             """
-            simulation_no = 50
+            simulation_no = 20
 
             for i in range(simulation_no):
                 v = self._tree_policy()
@@ -183,7 +183,7 @@ class StudentAgent(Agent):
             Constructs a list of all possible actions from current state. Returns a list.
             """
 
-            legal_positions = []  # A legal position to move to
+            legal_positions = set()  # A legal position to move to
 
             # Get current position
             pos = self.p1_pos if self.turn else self.p2_pos
@@ -194,28 +194,31 @@ class StudentAgent(Agent):
             #     if self.check_valid_step(pos[0], pos[0], direction):
             #         legal_positions.append((pos[0], direction))
 
-            pos_to_try = [pos]
+            pos_to_try = set()
+            pos_to_try.add(pos)
+            tried_positions = set()
 
             while num_steps:
-                temp = []
+                temp = set()
                 for p in pos_to_try:
+                    tried_positions.add(p)
                     res = self.get_neighbours(p[0])
-                    legal_positions = legal_positions + res
-                    temp = temp + res
-                pos_to_try = temp
-                num_steps = num_steps-1
+                    legal_positions.update(res)
+                    temp.update(res)
+                pos_to_try = temp - tried_positions
+                num_steps = num_steps - 1
 
-            return list(set(legal_positions))
+            return list(legal_positions)
 
         def get_neighbours(self, pos):
-            legal_actions = []
+            legal_actions = set()
             for move in self.moves:
                 next_pose = (pos[0] + move[0], pos[1] + move[1])
                 if 0 <= next_pose[0] < len(self.state) and 0 <= next_pose[1] < len(self.state):
                     for direction in range(4):
                         if self.check_valid_step(pos, next_pose, direction):
-                            legal_actions.append((pos, direction))
-            return legal_actions
+                            legal_actions.add((next_pose, direction))
+            return list(legal_actions)
 
         def is_game_over(self):
             """
@@ -266,13 +269,11 @@ class StudentAgent(Agent):
             """
             target_pose, direction = new_position
 
-            print(new_position)
             # Set barrier
             self.state[target_pose[0], target_pose[1], direction] = True
             # Set the opposite barrier to True
             op_move = self.moves[direction]
             self.state[target_pose[0] + op_move[0], target_pose[1] + op_move[1], self.opposites[direction]] = True
-            print(target_pose[0] + op_move[0], target_pose[1] + op_move[1], self.opposites[direction])
 
             if self.turn:
                 self.p1_pos = new_position
