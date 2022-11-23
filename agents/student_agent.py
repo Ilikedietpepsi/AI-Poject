@@ -5,6 +5,7 @@ from collections import defaultdict
 import numpy as np
 from copy import deepcopy
 
+
 @register_agent("student_agent")
 class StudentAgent(Agent):
     """
@@ -86,10 +87,12 @@ class StudentAgent(Agent):
             array and the child_node is returned
             """
             action = self._untried_actions.pop()
-            parent = deepcopy(self)
-            self.move(action)
-            child_node = parent.__class__(self.state, p1_pos=self.p1_pos, p2_pos=self.p2_pos, parent=parent,
-                                          max_step=self.max_step, turn=self.turn, parent_action=action)
+
+            # New state for the child
+            temp_node = deepcopy(self)
+            temp_node.move(action)
+            child_node = self.__class__(temp_node.state, p1_pos=temp_node.p1_pos, p2_pos=temp_node.p2_pos, parent=self,
+                                        max_step=self.max_step, turn=temp_node.turn, parent_action=action)
 
             self.children.append(child_node)
             return child_node
@@ -107,18 +110,26 @@ class StudentAgent(Agent):
             """
 
             end, p1_score, p2_score = self.is_game_over()
-            player_turn = self.turn
 
             while not end:
                 possible_moves = self.get_legal_positions()  # Based on the player whose turn it is
+
+                if len(possible_moves) == 0:
+                    # In this case the player has lost, has no more moves to make
+                    if self.turn:
+                        p1_score = -1
+                    else:
+                        p2_score = -1
+                    break
+
                 action = self.rollout_policy(possible_moves)
                 self.move(action)  # Turn switch
                 end, p1_score, p2_score = self.is_game_over()
 
             if p1_score > p2_score:
-                return 1 if player_turn else -1
+                return 1
             elif p1_score < p2_score:
-                return 1 if not player_turn else -1
+                return -1
             else:
                 return 0
 
@@ -147,7 +158,8 @@ class StudentAgent(Agent):
                                self.children]
             return self.children[np.argmax(choices_weights)]
 
-        def rollout_policy(self, possible_moves):
+        @staticmethod
+        def rollout_policy(possible_moves):
             """
             Randomly selects a move out of possible moves. This is an example of random play out.
             """
@@ -176,7 +188,7 @@ class StudentAgent(Agent):
                 reward = v.rollout()
                 v.back_propagate(reward)
 
-            return self.best_child(c_param=0.)
+            return self.best_child(c_param=0.1)
 
         def get_legal_positions(self):
             """
@@ -188,11 +200,6 @@ class StudentAgent(Agent):
             # Get current position
             pos = self.p1_pos if self.turn else self.p2_pos
             num_steps = self.max_step
-
-            # Setting up walls around current cell
-            # for direction in range(4):
-            #     if self.check_valid_step(pos[0], pos[0], direction):
-            #         legal_positions.append((pos[0], direction))
 
             pos_to_try = set()
             pos_to_try.add(pos)
@@ -218,6 +225,7 @@ class StudentAgent(Agent):
                     for direction in range(4):
                         if self.check_valid_step(pos, next_pose, direction):
                             legal_actions.add((next_pose, direction))
+
             return list(legal_actions)
 
         def is_game_over(self):
@@ -337,5 +345,4 @@ class StudentAgent(Agent):
             """
             Returns the best position to move to.
             """
-            # Todo make sure turn makes sense
-            return self.p1_pos
+            return self.parent_action
