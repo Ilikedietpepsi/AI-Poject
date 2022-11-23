@@ -4,6 +4,7 @@ from store import register_agent
 from collections import defaultdict
 import numpy as np
 from copy import deepcopy
+import math
 
 
 @register_agent("student_agent")
@@ -22,6 +23,7 @@ class StudentAgent(Agent):
             "d": 2,
             "l": 3,
         }
+        self.autoplay = True
 
     def step(self, chess_board, my_pos, adv_pos, max_step):
         """
@@ -122,7 +124,7 @@ class StudentAgent(Agent):
                         p2_score = -1
                     break
 
-                action = self.rollout_policy(possible_moves)
+                action = possible_moves[0]
                 self.move(action)  # Turn switch
                 end, p1_score, p2_score = self.is_game_over()
 
@@ -159,11 +161,11 @@ class StudentAgent(Agent):
             return self.children[np.argmax(choices_weights)]
 
         @staticmethod
-        def rollout_policy(possible_moves):
+        def evaluation_function(adv_position, a_position):
             """
-            Randomly selects a move out of possible moves. This is an example of random play out.
+            Describes the value of a legal position as its closeness to the adversary position,
             """
-            return possible_moves[np.random.randint(len(possible_moves))]
+            return math.dist(adv_position, a_position)
 
         def _tree_policy(self):
             """
@@ -181,12 +183,14 @@ class StudentAgent(Agent):
             """
             This is the best action function which returns the node corresponding to best possible move.
             """
-            simulation_no = 20
+            simulation_no = 10  # search the first 10 children
+            play_no = 5  # play each of them 5 times
 
             for i in range(simulation_no):
                 v = self._tree_policy()
-                reward = v.rollout()
-                v.back_propagate(reward)
+                for j in range(play_no):
+                    reward = v.rollout()
+                    v.back_propagate(reward)
 
             return self.best_child(c_param=0.1)
 
@@ -199,6 +203,7 @@ class StudentAgent(Agent):
 
             # Get current position
             pos = self.p1_pos if self.turn else self.p2_pos
+            adv_pos = self.p1_pos if not self.turn else self.p2_pos
             num_steps = self.max_step
 
             pos_to_try = set()
@@ -215,7 +220,10 @@ class StudentAgent(Agent):
                 pos_to_try = temp - tried_positions
                 num_steps = num_steps - 1
 
-            return list(legal_positions)
+            sorted_res = list(legal_positions)
+            # To sort the positions based on the evaluation function
+            sorted_res.sort(key=lambda x: self.evaluation_function(adv_pos[0], x[0]))
+            return sorted_res
 
         def get_neighbours(self, pos, initial_pos):
             legal_actions = set()
