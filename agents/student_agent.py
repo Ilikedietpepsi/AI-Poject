@@ -209,7 +209,7 @@ class StudentAgent(Agent):
                 temp = set()
                 for p in pos_to_try:
                     tried_positions.add(p)
-                    res = self.get_neighbours(p[0])
+                    res = self.get_neighbours(p[0], pos[0])
                     legal_positions.update(res)
                     temp.update(res)
                 pos_to_try = temp - tried_positions
@@ -217,13 +217,13 @@ class StudentAgent(Agent):
 
             return list(legal_positions)
 
-        def get_neighbours(self, pos):
+        def get_neighbours(self, pos, initial_pos):
             legal_actions = set()
             for move in self.moves:
                 next_pose = (pos[0] + move[0], pos[1] + move[1])
                 if 0 <= next_pose[0] < len(self.state) and 0 <= next_pose[1] < len(self.state):
                     for direction in range(4):
-                        if self.check_valid_step(pos, next_pose, direction):
+                        if self.check_valid_step(initial_pos, next_pose, direction):
                             legal_actions.add((next_pose, direction))
 
             return list(legal_actions)
