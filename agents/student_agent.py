@@ -4,7 +4,7 @@ from store import register_agent
 from collections import defaultdict
 import numpy as np
 from copy import deepcopy
-import math
+from math import dist
 
 
 @register_agent("student_agent")
@@ -38,7 +38,7 @@ class StudentAgent(Agent):
         """
         root = self.MonteCarloTreeSearchNode(state=chess_board, p1_pos=(my_pos, None), p2_pos=(adv_pos, None),
                                              max_step=max_step, turn=1)
-        selected_node = root.best_action()
+        selected_node = root.best_action(num_children_to_explore=13, num_game_simulations=7, exploration_parameter=0.65)
         return selected_node.get_selected_pos()
 
     class MonteCarloTreeSearchNode:
@@ -57,7 +57,6 @@ class StudentAgent(Agent):
             self._results = defaultdict(int)
             self._results[1] = 0
             self._results[-1] = 0
-            self._untried_actions = None
             self._untried_actions = self.untried_actions()
             return
 
@@ -124,7 +123,9 @@ class StudentAgent(Agent):
                         p2_score = -1
                     break
 
-                action = possible_moves[0]
+                # alpha/beta pruning inspiration
+                action = list(possible_moves)[0]  # Try the first move, since it has the highest evaluation func value.
+
                 self.move(action)  # Turn switch
                 end, p1_score, p2_score = self.is_game_over()
 
@@ -151,7 +152,7 @@ class StudentAgent(Agent):
             """
             return len(self._untried_actions) == 0
 
-        def best_child(self, c_param=0.1):
+        def best_child(self, c_param):
             """
             Once fully expanded, this function selects the best child out of the children array.
             """
@@ -165,9 +166,9 @@ class StudentAgent(Agent):
             """
             Describes the value of a legal position as its closeness to the adversary position,
             """
-            return math.dist(adv_position, a_position)
+            return dist(adv_position, a_position)
 
-        def _tree_policy(self):
+        def _tree_policy(self, exploration_parameter):
             """
             Selects node to run rollout.
             """
@@ -176,23 +177,22 @@ class StudentAgent(Agent):
                 if not current_node.is_fully_expanded():
                     return current_node.expand()
                 else:
-                    current_node = current_node.best_child()
+                    current_node = current_node.best_child(c_param=exploration_parameter)
             return current_node
 
-        def best_action(self):
+        def best_action(self, num_children_to_explore, num_game_simulations, exploration_parameter):
             """
             This is the best action function which returns the node corresponding to best possible move.
             """
-            simulation_no = 10  # search the first 10 children
-            play_no = 5  # play each of them 5 times
 
-            for i in range(simulation_no):
-                v = self._tree_policy()
-                for j in range(play_no):
+            while num_children_to_explore:
+                v = self._tree_policy(exploration_parameter)
+                for j in range(num_game_simulations):
                     reward = v.rollout()
                     v.back_propagate(reward)
+                num_children_to_explore = num_children_to_explore - 1
 
-            return self.best_child(c_param=0.1)
+            return self.best_child(c_param=exploration_parameter)
 
         def get_legal_positions(self):
             """
@@ -220,10 +220,13 @@ class StudentAgent(Agent):
                 pos_to_try = temp - tried_positions
                 num_steps = num_steps - 1
 
-            sorted_res = list(legal_positions)
             # To sort the positions based on the evaluation function
-            sorted_res.sort(key=lambda x: self.evaluation_function(adv_pos[0], x[0]))
-            return sorted_res
+            legal_positions = sorted(legal_positions, key=lambda x: self.evaluation_function(x[0], adv_pos[0]))
+
+            if len(legal_positions) > 31:
+                return legal_positions[:30]  # Just keep the first 30 (top k = 30)
+            else:
+                return legal_positions
 
         def get_neighbours(self, pos, initial_pos):
             legal_actions = set()
@@ -234,7 +237,7 @@ class StudentAgent(Agent):
                         if self.check_valid_step(initial_pos, next_pose, direction):
                             legal_actions.add((next_pose, direction))
 
-            return list(legal_actions)
+            return legal_actions
 
         def is_game_over(self):
             """
@@ -309,7 +312,7 @@ class StudentAgent(Agent):
             ----------
             start_pos : tuple
                 The start position of the agent.
-            end_pos : np.ndarray
+            end_pos : tuple
                 The end position of the agent.
             barrier_dir : int
                 The direction of the barrier.
