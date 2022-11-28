@@ -38,7 +38,7 @@ class StudentAgent(Agent):
         """
         root = self.MonteCarloTreeSearchNode(state=chess_board, p1_pos=(my_pos, None), p2_pos=(adv_pos, None),
                                              max_step=max_step, turn=1)
-        selected_node = root.best_action(num_children_to_explore=13, num_game_simulations=7, exploration_parameter=0.65)
+        selected_node = root.best_action(num_children_to_explore=8, num_game_simulations=5, exploration_parameter=0.1)
         return selected_node.get_selected_pos()
 
     class MonteCarloTreeSearchNode:
@@ -87,7 +87,8 @@ class StudentAgent(Agent):
             In this step all the possible child nodes corresponding to generated states are appended to the children
             array and the child_node is returned
             """
-            action = self._untried_actions.pop()
+
+            action = self._untried_actions.pop(0)
 
             # New state for the child
             temp_node = deepcopy(self)
@@ -161,12 +162,17 @@ class StudentAgent(Agent):
                                self.children]
             return self.children[np.argmax(choices_weights)]
 
-        @staticmethod
-        def evaluation_function(adv_position, a_position):
+        def evaluation_function(self, a_position, adv_position):
             """
             Describes the value of a legal position as its closeness to the adversary position,
             """
-            return dist(adv_position, a_position)
+            _, a_score, adv_score = self.is_game_over(a_position, adv_position)
+            diff = adv_score - a_score
+
+            if diff != 0:
+                return diff
+            else:
+                return dist(a_position[0], adv_position[0])
 
         def _tree_policy(self, exploration_parameter):
             """
@@ -207,11 +213,12 @@ class StudentAgent(Agent):
             num_steps = self.max_step
 
             pos_to_try = set()
+            temp = set()
             pos_to_try.add(pos)
-            tried_positions = set()
+            tried_positions = {(adv_pos[0], direction) for direction in range(4)}
 
             while num_steps:
-                temp = set()
+                temp.clear()
                 for p in pos_to_try:
                     tried_positions.add(p)
                     res = self.get_neighbours(p[0], pos[0])
@@ -221,10 +228,11 @@ class StudentAgent(Agent):
                 num_steps = num_steps - 1
 
             # To sort the positions based on the evaluation function
-            legal_positions = sorted(legal_positions, key=lambda x: self.evaluation_function(x[0], adv_pos[0]))
+            legal_positions = list(legal_positions)
+            legal_positions.sort(key=lambda x: self.evaluation_function(x, adv_pos))
 
-            if len(legal_positions) > 31:
-                return legal_positions[:30]  # Just keep the first 30 (top k = 30)
+            if len(legal_positions) > 21:
+                return legal_positions[:20]  # Just keep the first 20 (top k = 20)
             else:
                 return legal_positions
 
@@ -234,12 +242,13 @@ class StudentAgent(Agent):
                 next_pose = (pos[0] + move[0], pos[1] + move[1])
                 if 0 <= next_pose[0] < len(self.state) and 0 <= next_pose[1] < len(self.state):
                     for direction in range(4):
-                        if self.check_valid_step(initial_pos, next_pose, direction):
-                            legal_actions.add((next_pose, direction))
+                        if not self.state[next_pose[0], next_pose[1], direction]:
+                            if self.check_valid_step(initial_pos, next_pose, direction):
+                                legal_actions.add((next_pose, direction))
 
             return legal_actions
 
-        def is_game_over(self):
+        def is_game_over(self, p1=None, p2=None):
             """
             It is the game over condition. Returns true/ false, plus the scores of the players.
             """
@@ -273,8 +282,8 @@ class StudentAgent(Agent):
             for r in range(len(self.state)):
                 for c in range(len(self.state)):
                     find((r, c))
-            p0_r = find(tuple(self.p1_pos[0]))
-            p1_r = find(tuple(self.p2_pos[0]))
+            p0_r = find(tuple(p1[0])) if p1 else find(tuple(self.p1_pos[0]))
+            p1_r = find(tuple(p2[0])) if p2 else find(tuple(self.p2_pos[0]))
             p0_score = list(father.values()).count(p0_r)
             p1_score = list(father.values()).count(p1_r)
             if p0_r == p1_r:
