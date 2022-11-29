@@ -1,7 +1,6 @@
 # Student agent: Add your own agent here
 from agents.agent import Agent
 from store import register_agent
-from collections import defaultdict
 import numpy as np
 from copy import deepcopy
 from math import dist
@@ -23,7 +22,11 @@ class StudentAgent(Agent):
             "d": 2,
             "l": 3,
         }
+        self.opposites = {0: 2, 1: 3, 2: 0, 3: 1}
+        self.moves = ((-1, 0), (0, 1), (1, 0), (0, -1))
         self.autoplay = True
+        self.moves_dict = {}
+        self.walls = set()
 
     def step(self, chess_board, my_pos, adv_pos, max_step):
         """
@@ -36,13 +39,34 @@ class StudentAgent(Agent):
         where (x, y) is the next position of your agent and dir is the direction of the wall
         you want to put on.
         """
+
+        if len(self.moves_dict) == 0:
+            # Calculate all legal moves on first move
+            self.moves_dict = calculate_all_legal_steps(chess_board, max_step)
+        else:
+            # Add the adversary's position to the list of walls, except the first move
+            for b in chess_board[adv_pos[0], adv_pos[1]]:
+                if b:
+                    self.walls.add((adv_pos, b))
+                    self.walls.add(((adv_pos[0] + self.moves[b][0], adv_pos[1] + self.moves[b][1]), self.opposites[b]))
+
         root = self.MonteCarloTreeSearchNode(state=chess_board, p1_pos=(my_pos, None), p2_pos=(adv_pos, None),
-                                             max_step=max_step, turn=1)
-        selected_node = root.best_action(num_children_to_explore=8, num_game_simulations=5, exploration_parameter=0.1)
-        return selected_node.get_selected_pos()
+                                             max_step=max_step, turn=1, legal_pos_dict=self.moves_dict,
+                                             a_walls=self.walls)
+
+        selected_node = root.best_action(num_children_to_explore=11, num_game_simulations=3, exploration_parameter=0.6)
+
+        selected_pos = selected_node.get_selected_pos()
+        target_pos, direction = selected_pos
+        op_move = self.moves[direction]
+        self.walls.add(selected_pos)
+        self.walls.add(((target_pos[0] + op_move[0], target_pos[1] + op_move[1]), self.opposites[direction]))
+
+        return selected_pos
 
     class MonteCarloTreeSearchNode:
-        def __init__(self, state, p1_pos, p2_pos, max_step, turn, parent=None, parent_action=None):
+        def __init__(self, state, p1_pos, p2_pos, max_step, turn, legal_pos_dict, a_walls, parent=None,
+                     parent_action=None):
             self.state = state
             self.turn = turn
             self.moves = ((-1, 0), (0, 1), (1, 0), (0, -1))
@@ -54,9 +78,10 @@ class StudentAgent(Agent):
             self.parent_action = parent_action
             self.children = []
             self._number_of_visits = 0
-            self._results = defaultdict(int)
-            self._results[1] = 0
-            self._results[-1] = 0
+            self._results = {1: 0, -1: 0, 0: 0}
+            self.pos_dict = legal_pos_dict
+            self.new_walls = a_walls
+            self.index = len(self.new_walls)
             self._untried_actions = self.untried_actions()
             return
 
@@ -88,13 +113,23 @@ class StudentAgent(Agent):
             array and the child_node is returned
             """
 
-            action = self._untried_actions.pop(0)
+            try:
+                action = self._untried_actions.pop(0)
+            except IndexError:
+                return self.best_child(c_param=0.6)
+
+            while not check_valid_step(self.state, self.p1_pos[0], action[0], action[1], self.max_step, self.p2_pos):
+                try:
+                    action = self._untried_actions.pop(0)
+                except IndexError:
+                    return self.best_child(c_param=0.6)
 
             # New state for the child
             temp_node = deepcopy(self)
             temp_node.move(action)
             child_node = self.__class__(temp_node.state, p1_pos=temp_node.p1_pos, p2_pos=temp_node.p2_pos, parent=self,
-                                        max_step=self.max_step, turn=temp_node.turn, parent_action=action)
+                                        max_step=self.max_step, turn=temp_node.turn, parent_action=action,
+                                        legal_pos_dict=temp_node.pos_dict, a_walls=temp_node.new_walls)
 
             self.children.append(child_node)
             return child_node
@@ -112,6 +147,7 @@ class StudentAgent(Agent):
             """
 
             end, p1_score, p2_score = self.is_game_over()
+            break_out = False
 
             while not end:
                 possible_moves = self.get_legal_positions()  # Based on the player whose turn it is
@@ -124,8 +160,30 @@ class StudentAgent(Agent):
                         p2_score = -1
                     break
 
-                # alpha/beta pruning inspiration
-                action = list(possible_moves)[0]  # Try the first move, since it has the highest evaluation func value.
+                action = possible_moves[0]  # Try the first move, since it has the highest evaluation func value.
+
+                if self.turn:
+                    p = self.p1_pos[0]
+                    p1 = self.p2_pos[0]
+                else:
+                    p = self.p2_pos[0]
+                    p1 = self.p1_pos[0]
+
+                w = 0
+                while not check_valid_step(self.state, p, action[0], action[1], self.max_step, p1):
+                    w = w + 1
+                    try:
+                        action = possible_moves[w]
+                    except IndexError:
+                        break_out = True
+                        if self.turn:
+                            p1_score = -1
+                        else:
+                            p2_score = -1
+                        break
+
+                if break_out:
+                    break
 
                 self.move(action)  # Turn switch
                 end, p1_score, p2_score = self.is_game_over()
@@ -196,57 +254,20 @@ class StudentAgent(Agent):
                 for j in range(num_game_simulations):
                     reward = v.rollout()
                     v.back_propagate(reward)
+                    v.new_walls = set(list(v.new_walls)[:v.index])
                 num_children_to_explore = num_children_to_explore - 1
 
             return self.best_child(c_param=exploration_parameter)
 
         def get_legal_positions(self):
-            """
-            Constructs a list of all possible actions from current state. Returns a list.
-            """
 
-            legal_positions = set()  # A legal position to move to
-
-            # Get current position
             pos = self.p1_pos if self.turn else self.p2_pos
             adv_pos = self.p1_pos if not self.turn else self.p2_pos
-            num_steps = self.max_step
 
-            pos_to_try = set()
-            temp = set()
-            pos_to_try.add(pos)
-            tried_positions = {(adv_pos[0], direction) for direction in range(4)}
+            positions = list(self.pos_dict[pos[0]] - self.new_walls - {(adv_pos[0], direction) for direction in range(4)})
+            positions.sort(key=lambda x: self.evaluation_function(x, adv_pos))
 
-            while num_steps:
-                temp.clear()
-                for p in pos_to_try:
-                    tried_positions.add(p)
-                    res = self.get_neighbours(p[0], pos[0])
-                    legal_positions.update(res)
-                    temp.update(res)
-                pos_to_try = temp - tried_positions
-                num_steps = num_steps - 1
-
-            # To sort the positions based on the evaluation function
-            legal_positions = list(legal_positions)
-            legal_positions.sort(key=lambda x: self.evaluation_function(x, adv_pos))
-
-            if len(legal_positions) > 21:
-                return legal_positions[:20]  # Just keep the first 20 (top k = 20)
-            else:
-                return legal_positions
-
-        def get_neighbours(self, pos, initial_pos):
-            legal_actions = set()
-            for move in self.moves:
-                next_pose = (pos[0] + move[0], pos[1] + move[1])
-                if 0 <= next_pose[0] < len(self.state) and 0 <= next_pose[1] < len(self.state):
-                    for direction in range(4):
-                        if not self.state[next_pose[0], next_pose[1], direction]:
-                            if self.check_valid_step(initial_pos, next_pose, direction):
-                                legal_actions.add((next_pose, direction))
-
-            return legal_actions
+            return positions
 
         def is_game_over(self, p1=None, p2=None):
             """
@@ -303,6 +324,9 @@ class StudentAgent(Agent):
             op_move = self.moves[direction]
             self.state[target_pose[0] + op_move[0], target_pose[1] + op_move[1], self.opposites[direction]] = True
 
+            self.new_walls.add(new_position)
+            self.new_walls.add(((target_pose[0] + op_move[0], target_pose[1] + op_move[1]), self.opposites[direction]))
+
             if self.turn:
                 self.p1_pos = new_position
             else:
@@ -313,56 +337,101 @@ class StudentAgent(Agent):
 
             return self.state
 
-        def check_valid_step(self, start_pos, end_pos, barrier_dir):
-            """
-            Check if the step the agent takes is valid (reachable and within max steps).
-
-            Parameters
-            ----------
-            start_pos : tuple
-                The start position of the agent.
-            end_pos : tuple
-                The end position of the agent.
-            barrier_dir : int
-                The direction of the barrier.
-            """
-            # Endpoint already has barrier or is boarder
-            r, c = end_pos
-            if self.state[r, c, barrier_dir]:
-                return False
-            if np.array_equal(start_pos, end_pos):
-                return True
-
-            # Get position of the adversary
-            adv_pos = self.p2_pos[0] if self.turn else self.p1_pos[0]
-
-            # BFS
-            state_queue = [(start_pos, 0)]
-            visited = {tuple(start_pos)}
-            is_reached = False
-            while state_queue and not is_reached:
-                cur_pos, cur_step = state_queue.pop(0)
-                r, c = cur_pos
-                if cur_step == self.max_step:
-                    break
-                for d, move in enumerate(self.moves):
-                    if self.state[r, c, d]:
-                        continue
-
-                    next_pos = (cur_pos[0] + move[0], cur_pos[1] + move[1])
-                    if np.array_equal(next_pos, adv_pos) or tuple(next_pos) in visited:
-                        continue
-                    if np.array_equal(next_pos, end_pos):
-                        is_reached = True
-                        break
-
-                    visited.add(tuple(next_pos))
-                    state_queue.append((next_pos, cur_step + 1))
-
-            return is_reached
-
         def get_selected_pos(self):
             """
             Returns the best position to move to.
             """
             return self.parent_action
+
+
+def check_valid_step(board, start_pos, end_pos, barrier_dir, max_steps, adv=None):
+    """
+    Check if the step the agent takes is valid (reachable and within max steps).
+
+    Parameters
+    ----------
+    adv
+    max_steps
+    board
+    start_pos : tuple
+        The start position of the agent.
+    end_pos : tuple
+        The end position of the agent.
+    barrier_dir : int
+        The direction of the barrier.
+    """
+    # Endpoint already has barrier or is boarder
+    r, c = end_pos
+    if board[r, c, barrier_dir]:
+        return False
+    if np.array_equal(start_pos, end_pos):
+        return True
+
+    # BFS
+    state_queue = [(start_pos, 0)]
+    visited = {tuple(start_pos)}
+    is_reached = False
+    while state_queue and not is_reached:
+        cur_pos, cur_step = state_queue.pop(0)
+
+        r, c = cur_pos
+        if cur_step == max_steps:
+            break
+        for d, move in enumerate(((-1, 0), (0, 1), (1, 0), (0, -1))):
+            if board[r, c, d]:
+                continue
+
+            next_pos = (cur_pos[0] + move[0], cur_pos[1] + move[1])
+            if tuple(next_pos) in visited or (adv and np.array_equal(next_pos, adv[0])):
+                continue
+            if np.array_equal(next_pos, end_pos):
+                is_reached = True
+                break
+
+            visited.add(tuple(next_pos))
+            state_queue.append((next_pos, cur_step + 1))
+
+    return is_reached
+
+
+def get_neighbours(board, pos, initial_pos, max_steps):
+    legal_actions = set()
+    for move in ((-1, 0), (0, 1), (1, 0), (0, -1)):
+        next_pose = (pos[0] + move[0], pos[1] + move[1])
+        if 0 <= next_pose[0] < len(board) and 0 <= next_pose[1] < len(board):
+            for direction in range(4):
+                if not board[next_pose[0], next_pose[1], direction]:
+                    if check_valid_step(board, initial_pos, next_pose, direction, max_steps):
+                        legal_actions.add((next_pose, direction))
+    return legal_actions
+
+
+def calculate_all_legal_steps(board, num_steps):
+    """
+     Constructs a dictionary of all possible actions from all cells.
+     """
+
+    legal_positions_dict = {}
+
+    for r in range(len(board)):
+        for c in range(len(board)):
+            max_steps = num_steps
+            legal_positions = set()
+            pos = ((r, c), None)
+            pos_to_try = set()
+            temp = set()
+            pos_to_try.add(pos)
+            tried_positions = set()
+
+            while max_steps:
+                temp.clear()
+                for p in pos_to_try:
+                    tried_positions.add(p)
+                    res = get_neighbours(board, p[0], pos[0], num_steps)
+                    legal_positions.update(res)
+                    temp.update(res)
+                pos_to_try = temp - tried_positions
+                max_steps = max_steps - 1
+            legal_positions_dict[(r, c)] = legal_positions
+
+    return legal_positions_dict
