@@ -82,6 +82,7 @@ class StudentAgent(Agent):
             self.pos_dict = legal_pos_dict
             self.new_walls = a_walls
             self.index = len(self.new_walls)
+            self.eval_function_values = {}
             self._untried_actions = self.untried_actions()
             return
 
@@ -257,6 +258,8 @@ class StudentAgent(Agent):
 
             while num_children_to_explore:
                 v = self._tree_policy(exploration_parameter)
+                if self.eval_function_values[v.parent_action] < 0:
+                    return v
                 for j in range(num_game_simulations):
                     reward = v.rollout()
                     v.back_propagate(reward)
@@ -270,12 +273,18 @@ class StudentAgent(Agent):
             pos = self.p1_pos if self.turn else self.p2_pos
             adv_pos = self.p1_pos if not self.turn else self.p2_pos
 
-            positions = list(self.pos_dict[pos[0]] - self.new_walls - {(adv_pos[0], direction) for direction in range(4)})
-            positions.sort(key=lambda x: self.evaluation_function(x, adv_pos))
+            def f(x):
+                val = self.evaluation_function(x, adv_pos)
+                self.eval_function_values[x] = val
+                return val
+
+            positions = list(
+                self.pos_dict[pos[0]] - self.new_walls - {(adv_pos[0], direction) for direction in range(4)})
+            positions.sort(key=lambda x: f(x))
 
             return positions
 
-        def is_game_over(self, p1=None, p2=None):
+        def is_game_over(self, state=None, p1=None, p2=None):
             """
             It is the game over condition. Returns true/ false, plus the scores of the players.
             """
@@ -299,8 +308,12 @@ class StudentAgent(Agent):
                     for d, move in enumerate(
                             self.moves[1:3]
                     ):  # Only check down and right
-                        if self.state[r, c, d + 1]:
-                            continue
+                        if state is not None:
+                            if state[r, c, d + 1]:
+                                continue
+                        else:
+                            if self.state[r, c, d + 1]:
+                                continue
                         pos_a = find((r, c))
                         pos_b = find((r + move[0], c + move[1]))
                         if pos_a != pos_b:
@@ -309,8 +322,8 @@ class StudentAgent(Agent):
             for r in range(len(self.state)):
                 for c in range(len(self.state)):
                     find((r, c))
-            p0_r = find(tuple(p1[0])) if p1 else find(tuple(self.p1_pos[0]))
-            p1_r = find(tuple(p2[0])) if p2 else find(tuple(self.p2_pos[0]))
+            p0_r = find(tuple(p1[0])) if p1 is not None else find(tuple(self.p1_pos[0]))
+            p1_r = find(tuple(p2[0])) if p2 is not None else find(tuple(self.p2_pos[0]))
             p0_score = list(father.values()).count(p0_r)
             p1_score = list(father.values()).count(p1_r)
             if p0_r == p1_r:
