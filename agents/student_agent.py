@@ -45,16 +45,16 @@ class StudentAgent(Agent):
             self.moves_dict = calculate_all_legal_steps(chess_board, max_step)
         else:
             # Add the adversary's position to the list of walls, except the first move
-            for b in chess_board[adv_pos[0], adv_pos[1]]:
-                if b:
-                    self.walls.add((adv_pos, b))
-                    self.walls.add(((adv_pos[0] + self.moves[b][0], adv_pos[1] + self.moves[b][1]), self.opposites[b]))
+            for i in range(len(chess_board[adv_pos[0], adv_pos[1]])):
+                if chess_board[adv_pos[0], adv_pos[1]][i]:
+                    self.walls.add((adv_pos, i))
+                    self.walls.add(((adv_pos[0] + self.moves[i][0], adv_pos[1] + self.moves[i][1]), self.opposites[i]))
 
         root = self.MonteCarloTreeSearchNode(state=chess_board, p1_pos=(my_pos, None), p2_pos=(adv_pos, None),
                                              max_step=max_step, turn=1, legal_pos_dict=self.moves_dict,
                                              a_walls=self.walls)
 
-        selected_node = root.best_action(num_children_to_explore=11, num_game_simulations=3, exploration_parameter=0.6)
+        selected_node = root.best_action(num_children_to_explore=15, num_game_simulations=5, exploration_parameter=0.1)
 
         selected_pos = selected_node.get_selected_pos()
         target_pos, direction = selected_pos
@@ -224,7 +224,13 @@ class StudentAgent(Agent):
             """
             Describes the value of a legal position as its closeness to the adversary position,
             """
-            _, a_score, adv_score = self.is_game_over(a_position, adv_position)
+            te = deepcopy(self.state)
+            target_pose, direction = a_position
+            te[target_pose[0], target_pose[1], direction] = True
+            # Set the opposite barrier to True
+            op_move = self.moves[direction]
+            te[target_pose[0] + op_move[0], target_pose[1] + op_move[1], self.opposites[direction]] = True
+            _, a_score, adv_score = self.is_game_over(te, a_position, adv_position)
             diff = adv_score - a_score
 
             if diff != 0:
