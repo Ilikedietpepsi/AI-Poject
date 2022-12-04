@@ -54,7 +54,7 @@ class StudentAgent(Agent):
                                              max_step=max_step, turn=1, legal_pos_dict=self.moves_dict,
                                              a_walls=self.walls)
 
-        selected_node = root.best_action(num_children_to_explore=15, num_game_simulations=5, exploration_parameter=0.1)
+        selected_node = root.best_action(num_children_to_explore=4, num_game_simulations=1, exploration_parameter=0.6)
 
         selected_pos = selected_node.get_selected_pos()
         target_pos, direction = selected_pos
@@ -114,10 +114,7 @@ class StudentAgent(Agent):
             array and the child_node is returned
             """
 
-            try:
-                action = self._untried_actions.pop(0)
-            except IndexError:
-                return self.best_child(c_param=0.6)
+            action = self._untried_actions.pop(0)
 
             while not check_valid_step(self.state, self.p1_pos[0], action[0], action[1], self.max_step, self.p2_pos):
                 try:
